@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<base target="_top">
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	
+	<title>Map Test - Template</title>
+	
+	<link rel="shortcut icon" type="image/x-icon" href="docs/images/favicon.ico" />
+
+    <link rel="stylesheet" href="js/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="js/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <link rel="stylesheet" href="js/leaflet.draw.css"  crossorigin=""/>
+    <script src="js/leaflet.draw.js" crossorigin=""></script>
+
+	<style>
+		html, body {
+			height: 100%;
+			margin: 0;
+		}
+		.leaflet-container {
+			height: 100%;
+			width: 100%;
+			max-width: 100%;
+			max-height: 100%;
+		}
+	</style>
+
+	
+</head>
+<body>
+
+
+
+
+<div id="map"></div>
+
+<script>
+
+    var posts;
+	const map = L.map('map').setView([51.5, -0.09], 13);
+
+    var redLamp = L.icon({
+        iconUrl: 'img/table_lamp_16dp_EA3323_FILL0_wght400_GRAD0_opsz20.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+    });
+
+    var redCross = L.icon({
+        iconUrl: 'img/close_16dp_EA3323_FILL0_wght400_GRAD0_opsz20.png'
+    });
+
+	const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+		maxZoom: 19,
+		attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+	}).addTo(map);
+
+    // Initialize Leaflet Draw
+    var drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
+
+    var drawControl = new L.Control.Draw({
+        edit: {
+            featureGroup: drawnItems
+        },
+        draw: {
+            polyline: true,
+            polygon: false,
+            rectangle: false,
+            circle: false,
+            marker: false,
+            circlemarker: false
+        },
+        edit: {
+            featureGroup: drawnItems, //REQUIRED!!
+            remove: false,
+            edit: false
+        }
+    });
+    map.addControl(drawControl);
+
+    // on route create
+    // cycle through segments
+    // calc length of segment
+    // calc number of subsegments
+    // produce subsegments 
+    // colour randomly
+
+    // Color palette for segmenting the polyline
+    // var colors = ['red', 'blue', 'green', 'orange', 'purple'];
+
+    var colors = ['red', 'blue', 'green', 'purple', 'orange', 'brown']; // Define a color set
+
+    // Event when a polyline is created
+    map.on(L.Draw.Event.CREATED, function (e) {
+        let layer = e.layer;
+
+        const subsegmentLength = 10;
+
+        if (layer instanceof L.Polyline) {
+            var latlngs = layer.getLatLngs();
+
+            // console.log(latlngs);
+
+            const boundingBox = calculateBoundingBox(latlngs,expansionMeters=subsegmentLength);
+            // console.log(boundingBox);
+
+            // add bounding box to map
+            // var bounds = [[boundingBox.north, boundingBox.west],
+            //  [boundingBox.south, boundingBox.east]];
+            // L.rectangle(bounds, {color: "#ff7800", weight: 1}).addTo(map);
+
+            // find lamps in the bounding box
+            const candidates = findNearbyPoints(posts,boundingBox);
+
+            // add candidates to map
+            // console.log(candidates);
+            // for (let i = 0; i < candidates.length; i++) {
+            //     var marker = L.marker([candidates[i].latitude, candidates[i].longitude],{icon: redCross});
+            //     marker.addTo(map);
+            // }
+
+
+            let segments = [];
+            // let totalPoints = latlngs.length - 1;
+
+            const lightDistance = 10;
+
+            for (let i = 0; i < latlngs.length -1; i++) {
+                // segments
+
+                // const numSubSegments = 3;
+                
+                let subSegmentPoints = [];
+                const segmentLength=approximateDistance(latlngs[i], latlngs[i+1]);
+                // console.log('distance '+segmentLength);
+
+                const numSubSegments = Math.floor(segmentLength / subsegmentLength);
+        
+                for (let j = 0; j <= numSubSegments; j++) {
+      
+                    subSegmentPoints.push(interpolateLatLng(latlngs[i], latlngs[i+1], j / numSubSegments));
+                }
+
+                // simple colour cycling segments
+                // for (let j = 0; j < subSegmentPoints.length - 1; j++) {
+   
+                //     let color = colors[(i * numSubSegments + j) % colors.length]; // Cycle through colors
+                //     L.polyline([subSegmentPoints[j], subSegmentPoints[j + 1]], { color: color, weight: 4 }).addTo(map);
+                // }
+
+                // segments by proximity
+                for (let j = 0; j < subSegmentPoints.length - 1; j++) {
+   
+                    let mid = interpolateLatLng(subSegmentPoints[j], subSegmentPoints[j + 1],0.5);
+
+                    // search nearby
+                    let color = 'black';
+                    for( let k =0; k<candidates.length; k++){
+                        let cand_latlng = L.latLng(candidates[k].latitude, candidates[k].longitude);
+                        let dist = approximateDistance(mid, cand_latlng);
+                        // console.log(dist);
+                        if(dist <= lightDistance){
+                            color = 'yellow';
+                            break;
+                        }
+                    }
+                    // let color = colors[(i * numSubSegments + j) % colors.length]; // Cycle through colors
+                    L.polyline([subSegmentPoints[j], subSegmentPoints[j + 1]], { color: color, weight: 4 }).addTo(map);
+                }
+
+
+            }
+        }
+    });
+
+    async function fetchArrayData() {
+  		const [posts_file] = await Promise.all([
+    		fetch('lambeth_sorted.json')
+  		]);
+
+		const posts = await posts_file.json();
+		
+  		return [posts];
+	}
+
+    function loadFiles(){
+
+        // load data
+        fetchArrayData().then(([posts_arg]) => {
+
+            posts=posts_arg;
+
+
+            //add sample lamps
+            const SAMPLE = 500;
+            const numPosts = posts.length;
+
+            for (let i = 0; i <= numPosts-1; i+=SAMPLE) {
+                var marker = L.marker([posts[i].latitude, posts[i].longitude],{icon: redLamp});
+                marker.addTo(map);
+            }
+
+        }).catch(error => {
+            console.error(error);
+        });
+
+    }
+// Function to calculate approximate distance between two lat-lon points
+function approximateDistance(latlng1, latlng2) {
+    var R = 6371000; // Earth’s radius in meters
+    var x = (latlng2.lng - latlng1.lng) * Math.cos((latlng1.lat + latlng2.lat) / 2 * Math.PI / 180);
+    var y = (latlng2.lat - latlng1.lat);
+    return Math.sqrt(x * x + y * y) * (Math.PI / 180) * R;
+}
+
+// Function to interpolate between two lat-lon points
+function interpolateLatLng(start, end, factor) {
+    return L.latLng(
+        start.lat + (end.lat - start.lat) * factor,
+        start.lng + (end.lng - start.lng) * factor
+    );
+}
+
+// function to find posts within a bounding box
+function findNearbyPoints(sortedDict, boundingBox) {
+
+
+    // crossing
+    // [Log] find points n 51.49302721420453, s 51.48128289610097, e 0.021214349365234378, w -0.041127069091796885 
+    // not crossing
+    // [Log] find points n 51.496340321187475, s 51.48160361107215, e -0.07251276245117189, w -0.11631475219726564
+
+
+    // console.log('find points ');
+
+    let { south, north, west, east } = boundingBox;
+
+    // console.log('find points n ' + north +", s "+ south +", e "+ east+", w "+west);
+
+    let candidates = sortedDict.filter(function (p){
+    
+          // Check latitude range
+        let isLatInside = p.latitude >= south && p.latitude <= north;
+
+          // Check longitude range, considering meridian crossing
+        let isLngInside = (west <= east)  
+            ? (p.longitude >= west && p.longitude  <= east)  // Normal case
+            : (p.longitude  >= west || p.longitude  <= east); // Crossing the meridian
+
+        return isLatInside && isLngInside;
+
+    });
+
+    return candidates;
+}
+
+
+// Function to split a polyline into segments and sub-segments
+function splitPolyline(start, end, numSegments, numSubSegments) {
+    let segmentPoints = [];
+    
+    for (let i = 0; i <= numSegments; i++) {
+        segmentPoints.push(interpolateLatLng(start, end, i / numSegments));
+    }
+
+    for (let i = 0; i < segmentPoints.length - 1; i++) {
+        let subSegmentPoints = [];
+        
+        for (let j = 0; j <= numSubSegments; j++) {
+            subSegmentPoints.push(interpolateLatLng(segmentPoints[i], segmentPoints[i + 1], j / numSubSegments));
+        }
+
+        for (let j = 0; j < subSegmentPoints.length - 1; j++) {
+            let color = colors[(i * numSubSegments + j) % colors.length]; // Cycle through colors
+            L.polyline([subSegmentPoints[j], subSegmentPoints[j + 1]], { color: color, weight: 4 }).addTo(map);
+        }
+    }
+}
+
+function calculateBoundingBox(latlngs, expansionMeters = 2) {
+    if (!latlngs || latlngs.length === 0) {
+        return null; // Handle empty input
+    }
+
+    let minLat = Infinity, maxLat = -Infinity;
+    let minLng = Infinity, maxLng = -Infinity;
+
+    for (let { lat, lng } of latlngs) {
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+    }
+
+    // Convert meters to degrees (approximate)
+    let expansionDegrees = expansionMeters * 0.00001; // 1 meter ≈ 0.00001 degrees
+
+    return {
+        south: minLat - expansionDegrees,
+        north: maxLat + expansionDegrees,
+        west: minLng - expansionDegrees,
+        east: maxLng + expansionDegrees
+    };
+}
+
+
+
+
+// Example: Adding a two-point polyline and segmenting it
+// var start = L.latLng(51.505, -0.09);
+// var end = L.latLng(51.515, -0.08);
+// L.marker(start).addTo(map);
+// L.marker(end).addTo(map);
+
+// // Split the line into 5 segments, each with 3 sub-segments
+// splitPolyline(start, end, 5, 3);
+
+
+loadFiles();
+</script>
+
+
+
+</body>
+</html>
+
